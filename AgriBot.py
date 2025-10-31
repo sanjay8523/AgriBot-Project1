@@ -11,34 +11,27 @@ from dotenv import load_dotenv, find_dotenv
 import io
 from typing import List, Dict
 from gtts import gTTS
-# --- Import shared functions ---
+
+# --- (NEW) Import the authentication, project bot, and utils ---
+from project_bot import render_project_bot
 from utils import (
-    apply_custom_css,
-    t,
-    get_kannada_audio_bytes, # (NEW) Import the byte generator
-    language_toggle,
-    translate_to_english,
-    translate_back
+    apply_custom_css, t, get_kannada_audio_bytes,
+    check_login, render_sidebar, # Import login check and sidebar
+    translate_to_english, translate_back
 )
-# (NEW) Import the floating bot
-from project_bot import render_project_bot 
 
 # -----------------------------
-# Page Config (GLOBAL) & CSS & PWA Headers
+# (NEW) --- Main App Logic ---
 # -----------------------------
-st.set_page_config(page_title="Agri-Bot", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
-apply_custom_css()
-st.markdown("""
-    <link rel="manifest" href="manifest.json">
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js');
-        }
-    </script>
-    """, unsafe_allow_html=True)
+apply_custom_css() # Apply CSS *before* the login check
+check_login()      # <-- This is the login gate.
+render_sidebar()   # <-- This renders the sidebar with "Logout"
+# -----------------------------
+
+# --- USER IS LOGGED IN, SHOW THE CHATBOT PAGE ---
 
 # -----------------------------
-# Load environment variables & Groq Client
+# Load environment variables & Clients
 # -----------------------------
 load_dotenv(find_dotenv())
 GROQ_KEY = os.getenv("GROQ_API_KEY")
@@ -50,10 +43,22 @@ RETRIES = int(os.getenv("API_RETRIES", 2))
 client = Groq(api_key=GROQ_KEY)
 r = sr.Recognizer()
 
+db = st.session_state.db
+auth = st.session_state.auth
+user_id = st.session_state.user_id
+user_token = st.session_state.user['idToken']
+
 # -----------------------------
-# Session state
+# Load Chat History from Firebase
 # -----------------------------
-if "messages" not in st.session_state: st.session_state.messages = []
+if "messages" not in st.session_state:
+    try:
+        chat_history = db.child("user_chats").child(user_id).get(token=user_token).val()
+        st.session_state.messages = chat_history if chat_history else []
+    except Exception as e:
+        print(f"Error loading chat history: {e}")
+        st.session_state.messages = []
+
 if "last_audio_hash" not in st.session_state: st.session_state.last_audio_hash = None
 if "audio_bytes_for_message" not in st.session_state: st.session_state.audio_bytes_for_message = {}
 
@@ -75,23 +80,17 @@ def call_chat_api(message_history: List[Dict[str, str]], max_retries: int = RETR
     raise RuntimeError(f"API failed: {last_error}")
 
 # -----------------------------
-# Title & Sidebar
+# Title
 # -----------------------------
-lang = st.session_state.get("lang", "English")
+lang = st.session_state.lang
 st.markdown(f"<h1 style='text-align:center;'>{t('Agri-Bot: Your Smart Farming Assistant', lang)}</h1>", unsafe_allow_html=True)
 st.markdown(f"<h3 style='text-align:center;'>{t('Powered by AI', lang)}</h3>", unsafe_allow_html=True)
-with st.sidebar:
-    st.markdown(f"### {t('Settings', lang)}"); language_toggle(); st.markdown("---")
-    st.markdown(f"**{t('Model', lang)}:** `{MODEL}`"); st.markdown(f"**{t('Provider', lang)}:** `{PROVIDER}`")
-    if st.button(t("Clear Chat History", lang)):
-        st.session_state.messages = []; st.session_state.last_audio_hash = None
-        st.session_state.audio_bytes_for_message = {}
-        st.rerun()
 
 # -----------------------------
 # Chat Messages Display
 # -----------------------------
 message_counter = 0
+if st.session_state.messages is None: st.session_state.messages = []
 for msg in st.session_state.messages:
     message_counter += 1
     msg_key = f"msg_{message_counter}"
@@ -100,7 +99,6 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
         if msg_key in st.session_state.audio_bytes_for_message:
             audio_bytes = st.session_state.audio_bytes_for_message[msg_key]
-            # (NEW) Use a unique key for the button
             if st.button(f"🔊 {t('Play Kannada', lang)}", key=f"play_btn_{msg_key}"):
                  st.audio(audio_bytes, format="audio/mp3", autoplay=True)
 
@@ -143,20 +141,25 @@ if user_input:
             history = st.session_state.messages
             answer = call_chat_api(history)
             final_answer = translate_back(answer, orig_lang)
-
             st.session_state.messages.append({"role": "assistant", "content": final_answer})
             message_counter += 1 
             assistant_msg_key = f"msg_{message_counter}"
-
             if orig_lang == "kn":
                 audio_bytes = get_kannada_audio_bytes(final_answer)
                 if audio_bytes:
                     st.session_state.audio_bytes_for_message[assistant_msg_key] = audio_bytes
-            
-            st.rerun() # Rerun to display the new message and button
-
+            try:
+                db.child("user_chats").child(user_id).set(st.session_state.messages, token=user_token)
+            except Exception as e:
+                try:
+                    st.session_state.user = auth.refresh(st.session_state.user['refreshToken'])
+                    user_token = st.session_state.user['idToken'] 
+                    db.child("user_chats").child(user_id).set(st.session_state.messages, token=user_token)
+                except Exception as refresh_e:
+                    st.error(f"Error saving chat. Session expired. Please log out and log back in. {refresh_e}")
+            st.rerun() 
         except Exception as e:
             st.error(f"Error: {e}")
 
-# (NEW) Render the floating bot at the end
+# Render the floating bot at the end
 render_project_bot()

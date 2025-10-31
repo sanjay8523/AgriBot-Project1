@@ -13,5 +13,6 @@ langdetect
 tensorflow>=2.11.0
 numpy>=1.23.0
 pillow>=10.0.0
-streamlit-modal 
-# (streamlit-float has been REMOVED)
+streamlit-modal
+streamlit-float
+Pyrebase4
