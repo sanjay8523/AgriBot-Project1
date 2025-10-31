@@ -45,7 +45,6 @@ class_labels = {0: "Brown Spot", 1: "Healthy Plant", 2: "Leaf Blast", 3: "Sheath
 
 @st.cache_data(ttl=300)
 def get_weather(city="Bangalore"):
-    # (FIX) Added default humidity and rain to the return tuple
     if not OPENWEATHER_API_KEY: return (25, 60, 0, "http://openweathermap.org/img/wn/01d@2x.png", "Clear")
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric"
@@ -53,10 +52,9 @@ def get_weather(city="Bangalore"):
         if data.get("cod") == 200:
             temp = round(data["main"]["temp"]); icon = data["weather"][0]["icon"]
             desc = data["weather"][0]["description"].title(); icon_url = f"http://openweathermap.org/img/wn/{icon}@2x.png"
-            # (FIX) Return all 5 values
             return temp, data["main"]["humidity"], data.get("rain", {}).get("1h", 0), icon_url, desc
     except: pass
-    return 25, 60, 0, "http://openweathermap.org/img/wn/01d@2x.png", "Clear" # Default values
+    return 25, 60, 0, "http://openweathermap.org/img/wn/01d@2x.png", "Clear"
 
 def get_treatment_from_llm(disease: str, lang: str):
     if not client: return t("LLM not available.", lang), None
@@ -96,18 +94,12 @@ def predict_image(model, img):
         st.error(f"Prediction error: {e}")
         return "Unknown", 0.0
 
-# --- (THIS IS THE FIX) ---
 weather_data = get_weather("Bangalore")
 if weather_data:
     temp, hum, rain, icon_url, desc = weather_data
     _, col_w = st.columns([1, 6])
     with col_w:
-        # 2. Combined the text and image into one markdown line
-        st.markdown(
-            f"**{temp}°C** | {t('Humidity', lang)}: {hum}% | {t('Rain', lang)}: {rain}mm | <img src='{icon_url}' alt='{desc}' width='25' height='25' style='vertical-align: middle; margin-bottom: 5px;'> {t(desc, lang)}", 
-            unsafe_allow_html=True
-        )
-# --- (END OF FIX) ---
+        st.markdown(f"**{temp}°C** | {t('Humidity', lang)}: {hum}% | {t('Rain', lang)}: {rain}mm | <img src='{icon_url}' alt='{desc}' width='25' height='25' style='vertical-align: middle; margin-bottom: 5px;'> {t(desc, lang)}", unsafe_allow_html=True)
 
 st.markdown(f"<h1 style='text-align:center;'>{t('AgroScan - Paddy Disease Detector', lang)}</h1>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader(t("Upload Paddy Leaf Image", lang), type=["jpg", "jpeg", "png"])
@@ -142,7 +134,12 @@ if uploaded_file and model:
     elif disease in ["Brown Spot", "Leaf Blast", "Sheath Blight"]:
         with st.spinner(t("Getting cure advice...", lang)):
             treatment_html, audio_text = get_treatment_from_llm(disease, lang)
-        st.markdown(f"""<div style='background:rgba(255,255,255,0.95); padding:20px; border-radius:15px; color:#1B5E20; margin:15px 0;'><p style='line-height:1.9; font-size:16px; margin:0;'>{treatment_html}</p></div>""", unsafe_allow_html=True)
+        
+        # --- (THIS IS THE FIX) ---
+        # Use the new .info-box class instead of inline style
+        st.markdown(f"""<div class='info-box' style='margin:15px 0;'><p style='line-height:1.9; font-size:16px; margin:0;'>{treatment_html}</p></div>""", unsafe_allow_html=True)
+        # --- (END OF FIX) ---
+
         if lang == "Kannada" and audio_text:
             audio_bytes = get_kannada_audio_bytes(audio_text)
             if audio_bytes: st.audio(audio_bytes, autoplay=True, format="audio/mp3")

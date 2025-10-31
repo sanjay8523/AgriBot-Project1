@@ -117,18 +117,10 @@ MONTHS_LIST = [ "January", "February", "March", "April", "May", "June", "July", 
 
 lat, lon = st.session_state.lat, st.session_state.lon; weather = get_weather(lat, lon)
 temp, hum, rain = weather["temp"], weather["humidity"], weather["rainfall"]; desc, icon = weather["desc"], weather["icon"]
-
-# --- (THIS IS THE FIX) ---
-# 1. Correct the URL typo
 icon_url = f"https://openweathermap.org/img/wn/{icon}@2x.png" 
 _, col_w = st.columns([1, 6]);
 with col_w:
-    # 2. Combined the text and image into one markdown line to prevent wrapping
-    st.markdown(
-        f"**{temp}°C** | {t('Humidity', lang)}: {hum}% | {t('Rain', lang)}: {rain}mm | <img src='{icon_url}' alt='{desc}' width='25' height='25' style='vertical-align: middle; margin-bottom: 5px;'> {t(desc, lang)}", 
-        unsafe_allow_html=True
-    )
-# --- (END OF FIX) ---
+    st.markdown(f"**{temp}°C** | {t('Humidity', lang)}: {hum}% | {t('Rain', lang)}: {rain}mm | <img src='{icon_url}' alt='{desc}' width='25' height='25' style='vertical-align: middle; margin-bottom: 5px;'> {t(desc, lang)}", unsafe_allow_html=True)
 
 st.markdown(f"<h1 style='text-align:center;'>{t('AI Crop Recommender', lang)}</h1>", unsafe_allow_html=True)
 tab1, tab2 = st.tabs([ f"📍 {t('Recommend Crops', lang)}", f"🗺️ {t('Crop Map', lang)}" ]) 
@@ -221,14 +213,19 @@ with tab1:
                  is_error = "error" in crop_name.lower() or "unknown" in crop_name.lower()
                  if st.button(crop_name, key=f"crop_{i}", use_container_width=True, disabled=is_error):
                       st.session_state.selected_crop = crop_name
-             st.markdown(f"<small style='color:#1B5E20;'>{reason}</small>", unsafe_allow_html=True)
+             st.markdown(f"<small>{reason}</small>", unsafe_allow_html=True) # Text will be colored by CSS
         
         if st.session_state.get("selected_crop"):
             loc = st.session_state.user_data.get("location") 
-            if loc:
+            if loc and "state" in loc:
                 guide = get_crop_guide( st.session_state.selected_crop, loc["state"], loc["district"], loc["month"], lang )
                 st.markdown(f"### {t('Complete Guide for', lang)} **{st.session_state.selected_crop}**")
-                st.markdown(f"""<div style='background:rgba(255,255,255,0.95); padding:25px; border-radius:15px; color:#1B5E20; line-height:2;'>{guide.replace('•', '<br>•')}</div>""", unsafe_allow_html=True)
+                
+                # --- (THIS IS THE FIX) ---
+                # Use the new .info-box class instead of inline style
+                st.markdown(f"""<div class='info-box'>{guide.replace('•', '<br>•')}</div>""", unsafe_allow_html=True)
+                # --- (END OF FIX) ---
+                
                 if lang == "Kannada": 
                     audio_bytes = get_kannada_audio_bytes(guide[:500])
                     if audio_bytes: st.audio(audio_bytes, autoplay=True, format="audio/mp3")

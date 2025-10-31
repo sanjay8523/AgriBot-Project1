@@ -2,6 +2,7 @@
 import streamlit as st
 import pyrebase
 import time
+# (REMOVED) from utils import theme_toggle (This caused the circular import)
 
 # -----------------
 # YOUR FIREBASE CONFIG
@@ -19,11 +20,9 @@ firebaseConfig = {
 # (END) CONFIG
 # -----------------
 
-# (NEW) --- Initialization Function ---
+# --- Initialization Function ---
 def initialize_firebase():
-    """
-    Initializes Firebase and stores connections in session state.
-    """
+    """Initializes Firebase and stores connections in session state."""
     if "firebase_initialized" not in st.session_state:
         try:
             firebase = pyrebase.initialize_app(firebaseConfig)
@@ -44,6 +43,31 @@ def render_login_signup():
     if not st.session_state.get("firebase_initialized", False):
         st.error(st.session_state.get("firebase_error", "Firebase connection failed."))
         st.stop()
+    
+    # --- (NEW) Add toggle to the top right of the login page ---
+    if "theme" not in st.session_state:
+        st.session_state.theme = "light" # Default to light (green) theme
+
+    _, col_toggle = st.columns([0.8, 0.2])
+    with col_toggle:
+        # Get the current theme
+        is_dark = (st.session_state.theme == "dark")
+        
+        # Create the toggle
+        new_theme_state = st.toggle(
+            "🌙 **Night Mode**", 
+            value=is_dark, 
+            key="theme_toggle_button_login"
+        )
+        
+        # Check if the toggle was clicked
+        if (is_dark and not new_theme_state):
+            st.session_state.theme = "light"
+            st.rerun()
+        elif (not is_dark and new_theme_state):
+            st.session_state.theme = "dark"
+            st.rerun()
+    # --- (END NEW) ---
         
     st.markdown("<h1 style='text-align: center;'>Welcome to Agri-Bot</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align: center;'>Please login or sign up to continue</h3>", unsafe_allow_html=True)

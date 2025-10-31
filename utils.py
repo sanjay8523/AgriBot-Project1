@@ -11,63 +11,134 @@ from auth import initialize_firebase, render_login_signup # Import auth function
 def init_session_state():
     if "lang" not in st.session_state:
         st.session_state.lang = "English"
+    if "theme" not in st.session_state:
+        st.session_state.theme = "light"
 
-# ----------------- Global CSS -----------------
+# ----------------- (NEW) Theme Toggle Function -----------------
+def theme_toggle():
+    """Renders the theme toggle button."""
+    current_theme = st.session_state.theme
+    is_dark = (current_theme == "dark")
+    
+    new_theme_state = st.toggle(
+        "🌙 **Night Mode**", 
+        value=is_dark, 
+        key="theme_toggle_button"
+    )
+    
+    if (is_dark and not new_theme_state):
+        st.session_state.theme = "light"
+        st.rerun()
+    elif (not is_dark and new_theme_state):
+        st.session_state.theme = "dark"
+        st.rerun()
+
+# ----------------- Global CSS (NEW & FIXED) -----------------
 def apply_custom_css():
     init_session_state()
-    st.markdown("""
-    <style>
-    /* --- (FIX) Force background image on main container --- */
-    .stApp {
-        background: url("https://images.unsplash.com/photo-1500595046743-cd271d6942ee?q=80&w=2074&auto.format&fit=crop") no-repeat center center fixed;
-        background-size: cover;
-    }
-    .stApp::before {
-        content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: linear-gradient(135deg, rgba(0,100,0,0.5), rgba(0,0,0,0.3));
-        z-index: -1;
-    }
-    /* --- (FIX) Force ALL text (including login) to be dark green --- */
-    h1, h2, h3, h4, p, li, span, div, label, .st-emotion-cache-16txtl3, .st-emotion-cache-1jicfl2, .st-emotion-cache-6qob1r { 
-        color: #1B5E20 !important; 
-        text-shadow: 0 1px 2px rgba(0,0,0,0.1); 
-    }
-    /* --- (FIX) Force sidebar text to be dark green --- */
-    [data-testid="stSidebar"] { 
-        background-color: rgba(230, 245, 230, 0.8) !important;
-        backdrop-filter: blur(5px);
-    }
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label {
-        color: #1B5E20 !important;
-    }
-    /* --- (FIX) Style the Login/Signup tabs --- */
-    div[data-testid="stTabs"] button[role="tab"] {
-        color: #1B5E20 !important;
-        font-weight: 600;
-    }
-    /* (Rest of your UI is unchanged) */
-    [data-testid="stChatContainer"] {
-        background-color: rgba(255, 255, 255, 0.9);
-        border-radius: 15px;
-    }
-    .stButton>button{
-        background:linear-gradient(45deg,#2E7D32,#4CAF50);
-        color:white;border:none;border-radius:30px;
-        padding:12px 24px;font-weight:600;font-size:16px;
-    }
-    .streamlit-expanderHeader {
-        background: linear-gradient(45deg, #2E7D32, #4CAF50) !important;
-        color: white !important;
-    }
-    .streamlit-expanderContent {
-        background: rgba(255,255,255,0.95) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    
+    if st.session_state.theme == "light":
+        # This is your original green UI
+        st.markdown("""
+        <style>
+        .stApp {
+            background: url("https://images.unsplash.com/photo-1500595046743-cd271d6942ee?q=80&w=2074&auto.format&fit=crop") no-repeat center center fixed;
+            background-size: cover;
+        }
+        .stApp::before {
+            content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, rgba(0,100,0,0.5), rgba(0,0,0,0.3));
+            z-index: -1;
+        }
+        h1, h2, h3, h4, p, li, span, div, label, .st-emotion-cache-16txtl3, .st-emotion-cache-1jicfl2, .st-emotion-cache-6qob1r { 
+            color: #1B5E20 !important; 
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1); 
+        }
+        [data-testid="stSidebar"] { 
+            background-color: rgba(230, 245, 230, 0.8) !important;
+            backdrop-filter: blur(5px);
+        }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {
+            color: #1B5E20 !important;
+        }
+        div[data-testid="stTabs"] button[role="tab"] {
+            color: #1B5E20 !important;
+            font-weight: 600;
+        }
+        [data-testid="stChatContainer"] {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+        }
+        .stButton>button{
+            background:linear-gradient(45deg,#2E7D32,#4CAF50);
+            color:white;border:none;border-radius:30px;
+        }
+        .streamlit-expanderHeader {
+            background: linear-gradient(45deg, #2E7D32, #4CAF50) !important;
+            color: white !important;
+        }
+        .streamlit-expanderContent {
+            background: rgba(255,255,255,0.95) !important;
+        }
+
+        /* --- (THIS IS THE FIX for light mode) --- */
+        .info-box {
+            background: rgba(255,255,255,0.95) !important;
+            padding: 25px;
+            border-radius: 15px;
+            line-height: 2;
+        }
+        .info-box p, .info-box li {
+             color: #1B5E20 !important; /* Dark green text */
+        }
+        /* --- (END OF FIX) --- */
+        
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        # This is the Night Mode UI
+        st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0E1117;
+            background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        h1, h2, h3, h4, p, li, span, div, label, .st-emotion-cache-16txtl3, .st-emotion-cache-1jicfl2, .st-emotion-cache-6qob1r { 
+            color: #FAFAFA !important; 
+        }
+        [data-testid="stSidebar"] { 
+            background-color: #0E1117 !important;
+        }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {
+            color: #FAFAFA !important;
+        }
+        div[data-testid="stTabs"] button[role="tab"] {
+            color: #FAFAFA !important;
+        }
+        [data-testid="stChatContainer"] {
+            background-color: #111111;
+            border: 1px solid #333;
+        }
+        
+        /* --- (THIS IS THE FIX for dark mode) --- */
+        .info-box {
+            background: #1E1E1E !important; /* Dark grey */
+            border: 1px solid #333;
+            padding: 25px;
+            border-radius: 15px;
+            line-height: 2;
+        }
+        .info-box p, .info-box li {
+             color: #FAFAFA !important; /* Light text */
+        }
+        /* --- (END OF FIX) --- */
+        
+        </style>
+        """, unsafe_allow_html=True)
+
 
 # ----------------- Global Translator -----------------
 @st.cache_data
@@ -84,7 +155,7 @@ def language_toggle():
     lang_options = ["English", "Kannada"]
     current_index = 1 if st.session_state.lang == "Kannada" else 0
     new_lang = st.selectbox(
-        label="Language / ಭాಷೆ", options=lang_options,
+        label="Language / ਭਾਸ਼ਾ", options=lang_options,
         index=current_index, key="lang_select_sidebar"
     )
     if new_lang != st.session_state.lang:
@@ -120,52 +191,38 @@ def translate_back(text, target_lang):
     except:
         return text
 
-# ----------------- (NEW) Login Check -----------------
+# ----------------- Login Check -----------------
 def check_login():
-    """
-    Checks if user is logged in. If not, shows login page and stops execution.
-    This must be called at the *very top* of every page.
-    """
-    initialize_firebase() # Make sure Firebase is initialized
-    
+    from auth import initialize_firebase, render_login_signup 
+    initialize_firebase() 
     if "user" not in st.session_state:
-        # Hide the sidebar on the login page
         st.markdown("<style>[data-testid='stSidebar'] {display: none;}</style>", unsafe_allow_html=True)
-        render_login_signup() # Show the login/signup form
-        st.stop() # Stop execution of the rest of the page
+        render_login_signup() 
+        st.stop() 
 
-# ----------------- (NEW) Sidebar with Logout (FIXED) -----------------
+# ----------------- Sidebar with Logout -----------------
 def render_sidebar():
-    """Renders the sidebar for all logged-in pages."""
     lang = st.session_state.get("lang", "English")
     with st.sidebar:
         st.markdown(f"### {t('Settings', lang)}")
         language_toggle()
+        theme_toggle() # <-- Theme toggle is here
         
-        # --- (FIX) ADDED THIS SECTION BACK ---
         st.markdown("---")
-        # These values are hardcoded for now, but you could load them from .env if you want
         st.markdown(f"**{t('Model', lang)}:** `llama-3.3-70b-versatile`")
         st.markdown(f"**{t('Provider', lang)}:** `GROQ`")
         
         if st.button(t("Clear Chat History", lang)):
-            # Get user info from session state
             user_id = st.session_state.user_id
             user_token = st.session_state.user['idToken']
             db = st.session_state.db
-            
-            # Clear locally
             st.session_state.messages = [] 
             st.session_state.audio_bytes_for_message = {}
-            
-            # Clear in database
             try:
                 db.child("user_chats").child(user_id).set([], token=user_token)
             except Exception as e:
                 st.error(f"Error clearing history: {e}")
-            
             st.rerun()
-        # --- (END OF FIX) ---
             
         st.markdown("---")
         st.write(f"{t('Logged in as', lang)}: **{st.session_state.user_email}**")

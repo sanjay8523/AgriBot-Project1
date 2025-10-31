@@ -3,7 +3,8 @@ import streamlit as st
 from groq import Groq
 from dotenv import load_dotenv
 import os
-from streamlit_modal import Modal # <-- (NEW) This is the correct library
+from streamlit_modal import Modal 
+import streamlit.components.v1 as components
 
 # -----------------
 # Load API Key
@@ -64,8 +65,6 @@ def call_project_bot_api(message_history):
 # -----------------
 def render_project_bot():
     
-    # --- (THIS IS THE FIX) ---
-    
     # 1. Add all CSS styling
     st.markdown("""
     <style>
@@ -93,8 +92,8 @@ def render_project_bot():
     /* Style the floating button */
     button[data-testid="stButton"][key="open-chat-modal"] {
         position: fixed;
-        bottom: 3rem;      /* MOVED UP */
-        right: 1.5rem;     /* MOVED FROM EDGE */
+        bottom: 3rem;
+        right: 1.5rem;
         background-color: #2E7D32;
         color: white;
         border: none;
@@ -118,13 +117,12 @@ def render_project_bot():
     </style>
     """, unsafe_allow_html=True)
     
-    # 2. Define the Modal *without* the bad 'css_style' argument
+    # 2. Define the Modal
     modal = Modal(
         "💬 Agri-Bot Help Center", 
         key="project-bot-modal",
         max_width=600
     )
-    # --- (END OF FIX) ---
 
     # 3. Create the floating button
     st.button("💬", key="open-chat-modal")
@@ -147,11 +145,15 @@ def render_project_bot():
             chat_box = st.container(height=350, border=False)
             with chat_box:
                 for msg in st.session_state.project_bot_messages:
+                    
+                    # --- (THIS IS THE FIX) ---
+                    # Use emojis for avatars, not file paths
                     avatar = "🌱" if msg["role"] == "assistant" else "🧑‍🌾" 
+                    # --- (END OF FIX) ---
+                    
                     with st.chat_message(msg["role"], avatar=avatar):
                         st.markdown(msg["content"])
             
-            # --- (THIS IS THE FIX for the input bar) ---
             # 6b. Use a form for the input *inside the modal*
             with st.form(key="bot_chat_form", clear_on_submit=True):
                 user_text = st.text_input(
@@ -165,7 +167,6 @@ def render_project_bot():
             if submitted and user_text:
                 st.session_state.project_bot_messages.append({"role": "user", "content": user_text})
                 st.rerun()
-            # --- (END OF FIX) ---
 
             # 6c. Check if the last message was from the user, then get a response
             if st.session_state.project_bot_messages[-1]["role"] == "user":
