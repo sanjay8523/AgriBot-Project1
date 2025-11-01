@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import io
 
 # --- Import all required functions ---
-from project_bot import render_project_bot
+from project_bot import render_project_bot 
 from utils import (
     apply_custom_css, t, get_kannada_audio_bytes,
     check_login, render_sidebar
@@ -74,6 +74,8 @@ if "selected_crop" not in st.session_state: st.session_state.selected_crop = Non
 if "crops" not in st.session_state: st.session_state.crops = None
 if "lat" not in st.session_state: st.session_state.lat = 12.9716
 if "lon" not in st.session_state: st.session_state.lon = 77.5946
+if "market_prediction" not in st.session_state: st.session_state.market_prediction = None
+if "stress_test_result" not in st.session_state: st.session_state.stress_test_result = None
 
 @st.cache_data(ttl=300)
 def get_weather(lat, lon):
@@ -86,35 +88,118 @@ def get_weather(lat, lon):
     except: pass
     return {"temp": 25, "humidity": 60, "rainfall": 0, "desc": "Clear", "icon": "01d"}
 
+def call_groq_api(prompt, max_tokens=300):
+    if not client: return t("LLM service not available.", lang)
+    try:
+        chat = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}], 
+            model="llama-3.3-70b-versatile", # Using the fast Llama 3 on Groq
+            temperature=0.3, 
+            max_tokens=max_tokens
+        )
+        return chat.choices[0].message.content.strip()
+    except Exception as e:
+        return t(f"LLM Error: {e}", lang)
+
 def get_crop_recommendations(n, p, k, ph, temp, hum, rain, state, district, month, lang):
-    if not client: return ["1. Rice - Default", "2. Maize - Default", "3. Groundnut - Default"], "Rice Maize Groundnut"
     prompt = f"Recommend 3 crops for Indian farmer. Soil: N={n}, P={p}, K={k}, pH={ph}. Weather: {temp} deg C, {hum}% humidity, {rain} mm rain. Location: {state}, {district}, {month}. Rank: 1=best, 2=good, 3=viable. Format:\n1. [CROP] - [short reason]\n2. [CROP] - [short reason]\n3. [CROP] - [short reason]"
     if lang == "Kannada": prompt += " Answer in Kannada. Use 1. 2. 3."
-    try:
-        chat = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=300)
-        response = chat.choices[0].message.content.strip()
+    response = call_groq_api(prompt)
+    if response:
         crops = [line.strip() for line in response.split('\n') if line.strip().startswith(('1.', '2.', '3.'))]
         while len(crops) < 3: crops.append(f"{len(crops)+1}. Unknown - Error")
         if len(crops) >= 3:
             audio_text = " ".join([c.split('-')[0].replace('1.', '').replace('2.', '').replace('3.', '').strip() for c in crops[:3]])
             return crops[:3], audio_text
-    except Exception as e: st.error(f"LLM Error: {e}")
     return ["1. Rice - Error", "2. Maize - Error", "3. Groundnut - Error"], "Rice Maize Groundnut"
 
 def get_crop_guide(crop, state, district, month, lang):
-    if not client: return t("Guide not available in demo mode.", lang)
     prompt = f"Complete growing guide for {crop} in {state}, {district} during {month}. Include: Soil preparation, Sowing time, Seed rate, Spacing, Irrigation, Fertilizer (NPK), Pest control, Harvesting, Yield per acre, Market tips. Use bullets."
     if lang == "Kannada": prompt += " Answer in Kannada."
-    try:
-        chat = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=800)
-        return chat.choices[0].message.content.strip()
-    except Exception as e: return t(f"Error: {e}", lang)
+    return call_groq_api(prompt, max_tokens=800)
 
-FAMOUS_CROPS = { "Punjab": "Wheat 🌾", "Haryana": "Rice 🌾", "Uttar Pradesh": "Sugarcane 🍬", "Bihar": "Maize 🌽", "West Bengal": "Rice 🌾", "Odisha": "Rice 🌾", "Maharashtra": "Cotton ☁️", "Gujarat": "Groundnut 🥜", "Karnataka": "Ragi 🌾", "Kerala": "Coconut 🥥", "Tamil Nadu": "Rice 🌾", "Madhya Pradesh": "Soybean 🌱", "Andhra Pradesh": "Chillies 🌶️", "Telangana": "Cotton ☁️", "Rajasthan": "Bajra 🌾", "Assam": "Tea 🍃" }
-STATE_COORDS = { "Punjab": (31.15, 75.34), "Haryana": (29.06, 76.08), "Uttar Pradesh": (26.84, 80.94), "Bihar": (25.59, 85.13), "West Bengal": (22.57, 88.36), "Odisha": (20.27, 85.84), "Maharashtra": (19.07, 72.88), "Gujarat": (22.30, 70.80), "Karnataka": (12.97, 77.59), "Kerala": (10.85, 76.27), "Tamil Nadu": (13.08, 80.27), "Madhya Pradesh": (23.25, 77.41), "Andhra Pradesh": (15.91, 79.74), "Telangana": (17.39, 78.49), "Rajasthan": (26.91, 75.79), "Assam": (26.20, 92.93) }
+# --- NEW FEATURE FUNCTIONS ---
+
+def get_market_prediction(crop, state, district, month, lang):
+    """Generates market price and procurement advice."""
+    prompt = f"""
+    You are a commodity market expert for Indian agriculture. 
+    Your goal is to give a farmer a quick, actionable market and procurement forecast for {crop} in {district}, {state} for the upcoming harvest period in {month}. 
+    Analyze current (simulated) global trends, MSP data, and local harvest cycles.
+    Format your response as three distinct, short, bulleted points.
+    1. [Price Trend Prediction]
+    2. [Procurement/MSP Advice]
+    3. [Selling Strategy Tip]
+    """
+    if lang == "Kannada": prompt += " Answer concisely in Kannada."
+    return call_groq_api(prompt, max_tokens=300)
+
+def run_farm_stress_test(crop, state, district, month, n, p, k, ph, temp, hum, rain, stress_scenario, lang):
+    """Simulates a stress event and provides mitigation advice."""
+    prompt = f"""
+    You are a plant pathologist and agronomist. The farmer is growing {crop} in {district}, {state}. The current growth month is {month}. 
+    Current farm conditions: Nitrogen(N)={n}, Phosphorus(P)={p}, Potassium(K)={k}, pH={ph}. Current weather: Temp={temp}°C, Humidity={hum}%, Rainfall={rain}mm.
+    
+    The farmer wants to run a 'What If' stress simulation: '{stress_scenario}'.
+    
+    Based on the specific crop and current conditions, analyze the risk. Provide a two-part answer:
+    1. DAMAGE ANALYSIS: A single paragraph describing the specific damage to the crop (e.g., pollen sterility, fungal risk, nutrient lock-up).
+    2. PROACTIVE ACTION PLAN: A concise, numbered list (3-5 points) of immediate mitigation steps.
+    
+    Answer concisely.
+    """
+    if lang == "Kannada": prompt += " Answer concisely in Kannada."
+    return call_groq_api(prompt, max_tokens=500)
+
+# --- STATIC DATA (Updated for Karnataka Granularity) ---
+FAMOUS_CROPS = { "Punjab": "Wheat 🌾", "Haryana": "Rice 🌾", "Uttar Pradesh": "Sugarcane 🍬", "Bihar": "Maize 🌽", "West Bengal": "Rice 🌾", "Odisha": "Rice 🌾", "Maharashtra": "Cotton ☁️", "Gujarat": "Groundnut 🥜", "Kerala": "Coconut 🥥", "Tamil Nadu": "Rice 🌾", "Madhya Pradesh": "Soybean 🌱", "Andhra Pradesh": "Chillies 🌶️", "Telangana": "Cotton ☁️", "Rajasthan": "Bajra 🌾", "Assam": "Tea 🍃" }
+STATE_COORDS = { "Punjab": (31.15, 75.34), "Haryana": (29.06, 76.08), "Uttar Pradesh": (26.84, 80.94), "Bihar": (25.59, 85.13), "West Bengal": (22.57, 88.36), "Odisha": (20.27, 85.84), "Maharashtra": (19.07, 72.88), "Gujarat": (22.30, 70.80), "Karnataka": (14.52, 75.72), "Kerala": (10.85, 76.27), "Tamil Nadu": (13.08, 80.27), "Madhya Pradesh": (23.25, 77.41), "Andhra Pradesh": (15.91, 79.74), "Telangana": (17.39, 78.49), "Rajasthan": (26.91, 75.79), "Assam": (26.20, 92.93) }
 INDIA_STATES_DISTRICTS = { "Andhra Pradesh": ["Anantapur", "Chittoor", "Guntur", "Krishna", "Kurnool", "Visakhapatnam"], "Karnataka": [ "Bagalkote", "Ballari", "Belagavi", "Bengaluru Rural", "Bengaluru Urban", "Bidar", "Chamarajanagara", "Chikkaballapura", "Chikkamagaluru", "Chitradurga", "Dakshina Kannada", "Davanagere", "Dharwad", "Gadag", "Hassan", "Haveri", "Kalaburagi", "Kodagu", "Kolar", "Koppal", "Mandya", "Mysuru", "Raichur", "Ramanagara", "Shivamogga", "Tumakuru", "Udupi", "Uttara Kannada", "Vijayapura", "Yadgir" ], "Kerala": ["Alappuzha", "Ernakulam", "Idukki", "Kannur", "Kollam", "Kottayam", "Kozhikode", "Malappuram", "Palakkad", "Thiruvananthapuram"], "Maharashtra": ["Ahmednagar", "Aurangabad", "Kolhapu", "Mumbai City", "Mumbai Suburban", "Nagpur", "Nashik", "Pune", "Satara", "Thane"], "Tamil Nadu": ["Chennai", "Coimbatore", "Kanchipuram", "Kanyakumari", "Madurai", "Salem", "Tiruchirappalli", "Vellore"], "Uttar Pradesh": ["Agra", "Aligarh", "Allahabad", "Bareilly", "Ghaziabad", "Gorakhpur", "Kanpur", "Lucknow", "Meerut", "Varanasi"] }
 MONTHS_LIST = [ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" ]
 
+# --- ENHANCED KARNATAKA DISTRICT CROP DATA FOR MAP (NEW, ALL DISTRICTS IN LIST) ---
+# This dictionary now contains all districts listed in INDIA_STATES_DISTRICTS["Karnataka"]
+# Coordinates are approximate and crops are based on publicly available general data.
+KARNATAKA_DISTRICT_CROPS = {
+    # South/Cauvery Basin
+    "Mandya": {"coords": (12.53, 76.90), "crops": "Sugarcane, Paddy, Coconut"},
+    "Mysuru": {"coords": (12.30, 76.65), "crops": "Ragi, Turmeric, Paddy"},
+    "Chamarajanagara": {"coords": (11.93, 77.12), "crops": "Turmeric, Banana, Maize"},
+    "Bengaluru Urban": {"coords": (12.97, 77.59), "crops": "Ragi, Rice, Vegetables"},
+    "Bengaluru Rural": {"coords": (13.00, 77.40), "crops": "Ragi, Mango, Pulses"},
+    "Ramanagara": {"coords": (12.75, 77.26), "crops": "Sericulture, Ragi, Coconut"},
+    "Kolar": {"coords": (13.13, 78.13), "crops": "Tomato, Groundnut, Pulses"},
+    "Chikkaballapura": {"coords": (13.43, 77.72), "crops": "Groundnut, Grapes, Ragi"},
+    # Malnad/Coastal
+    "Kodagu": {"coords": (12.33, 75.74), "crops": "Coffee, Cardamom, Paddy"},
+    "Chikkamagaluru": {"coords": (13.31, 75.77), "crops": "Coffee, Arecanut, Paddy"},
+    "Hassan": {"coords": (13.01, 76.10), "crops": "Coffee, Potato, Paddy"},
+    "Shivamogga": {"coords": (13.92, 75.56), "crops": "Arecanut, Paddy, Maize"},
+    "Dakshina Kannada": {"coords": (12.91, 74.85), "crops": "Arecanut, Coconut, Rice"},
+    "Udupi": {"coords": (13.34, 74.74), "crops": "Coconut, Rice, Arecanut"},
+    "Uttara Kannada": {"coords": (14.65, 74.61), "crops": "Cashew, Paddy, Spice"},
+    # North/Central Karnataka
+    "Davanagere": {"coords": (14.46, 75.92), "crops": "Paddy, Maize, Cotton"},
+    "Chitradurga": {"coords": (14.22, 76.40), "crops": "Groundnut, Jowar, Maize"},
+    "Tumakuru": {"coords": (13.34, 77.10), "crops": "Coconut, Ragi, Groundnut"},
+    "Ballari": {"coords": (15.14, 76.92), "crops": "Paddy, Cotton, Jowar"},
+    "Koppal": {"coords": (15.35, 76.08), "crops": "Paddy, Cotton, Tur Dal"},
+    "Raichur": {"coords": (16.21, 77.34), "crops": "Paddy, Cotton, Jowar"},
+    # Hyderabad-Karnataka Region (Kalyana Karnataka)
+    "Kalaburagi": {"coords": (17.33, 76.83), "crops": "Red Gram (Tur), Jowar, Maize"},
+    "Yadgir": {"coords": (16.76, 77.13), "crops": "Red Gram (Tur), Cotton, Jowar"},
+    "Bidar": {"coords": (17.91, 77.51), "crops": "Red Gram (Tur), Jowar, Sugarcane"},
+    # Belagavi Region
+    "Belagavi": {"coords": (15.85, 74.50), "crops": "Sugarcane, Jowar, Groundnut"},
+    "Dharwad": {"coords": (15.46, 75.00), "crops": "Jowar, Wheat, Bengal Gram"},
+    "Haveri": {"coords": (14.79, 75.45), "crops": "Maize, Cotton, Paddy"},
+    "Gadag": {"coords": (15.35, 75.62), "crops": "Jowar, Cotton, Groundnut"},
+    "Bagalkote": {"coords": (16.18, 75.66), "crops": "Jowar, Bajra, Sugarcane"},
+    "Vijayapura": {"coords": (16.82, 75.71), "crops": "Jowar, Sunflower, Grapes"},
+}
+# --- END ENHANCED KARNATAKA DATA ---
+
+# ----------------- Weather Header -----------------
 lat, lon = st.session_state.lat, st.session_state.lon; weather = get_weather(lat, lon)
 temp, hum, rain = weather["temp"], weather["humidity"], weather["rainfall"]; desc, icon = weather["desc"], weather["icon"]
 icon_url = f"https://openweathermap.org/img/wn/{icon}@2x.png" 
@@ -170,23 +255,29 @@ with tab1:
     
     st.markdown(f"### {t('Soil & Weather Data', lang)}")
     col1, col2, col3 = st.columns(3); col4, col5, col6 = st.columns(3)
-    with col1: n = st.number_input(t("Nitrogen (N)", lang), 0.0, value=saved_soil.get("n", 50.0), step=1.0)
-    with col2: p = st.number_input(t("Phosphorus (P)", lang), 0.0, value=saved_soil.get("p", 25.0), step=1.0)
-    with col3: k = st.number_input(t("Potassium (K)", lang), 0.0, value=saved_soil.get("k", 25.0), step=1.0)
-    with col4: ph = st.number_input(t("pH", lang), 0.0, 14.0, value=saved_soil.get("ph", 6.5), step=0.1)
-    with col5: temp_in = st.number_input(t("Temperature (°C)", lang), 0.0, value=float(temp), step=0.5)
-    with col6: hum_in = st.number_input(t("Humidity (%)", lang), 0.0, value=float(hum), step=1.0)
-    rainfall = st.number_input(t("Rainfall (mm)", lang), 0.0, value=saved_soil.get("rainfall", 100.0), step=10.0)
+    with col1: n = st.number_input(t("Nitrogen (N)", lang), 0.0, value=saved_soil.get("n", 50.0), step=1.0, key="n_input")
+    with col2: p = st.number_input(t("Phosphorus (P)", lang), 0.0, value=saved_soil.get("p", 25.0), step=1.0, key="p_input")
+    with col3: k = st.number_input(t("Potassium (K)", lang), 0.0, value=saved_soil.get("k", 25.0), step=1.0, key="k_input")
+    with col4: ph = st.number_input(t("pH", lang), 0.0, 14.0, value=saved_soil.get("ph", 6.5), step=0.1, key="ph_input")
+    with col5: temp_in = st.number_input(t("Temperature (°C)", lang), 0.0, value=float(temp), step=0.5, key="temp_input")
+    with col6: hum_in = st.number_input(t("Humidity (%)", lang), 0.0, value=float(hum), step=1.0, key="hum_input")
+    rainfall = st.number_input(t("Rainfall (mm)", lang), 0.0, value=saved_soil.get("rainfall", 100.0), step=10.0, key="rain_input")
     
     if st.button(t("Get Crop Recommendations", lang), type="primary"):
         if "state" not in st.session_state.user_data.get("location", {}): 
             st.error(t("Please save a location first.", lang))
         else:
+            # Clear previous results when running a new recommendation
+            st.session_state.market_prediction = None
+            st.session_state.stress_test_result = None
             st.session_state.user_data["soil"] = {"n": n, "p": p, "k": k, "ph": ph, "rainfall": rainfall}
             save_user_data(st.session_state.user_data)
             loc = st.session_state.user_data["location"]
-            crops, audio_text = get_crop_recommendations( n, p, k, ph, temp_in, hum_in, rainfall, loc["state"], loc["district"], loc["month"], lang )
-            st.session_state.crops = crops
+            
+            with st.spinner(t("Calculating top crop recommendations...", lang)):
+                 crops, audio_text = get_crop_recommendations( n, p, k, ph, temp_in, hum_in, rainfall, loc["state"], loc["district"], loc["month"], lang )
+                 st.session_state.crops = crops
+            
             if lang == "Kannada" and audio_text: 
                 audio_bytes = get_kannada_audio_bytes(audio_text)
                 if audio_bytes: st.audio(audio_bytes, autoplay=True, format="audio/mp3")
@@ -211,34 +302,22 @@ with tab1:
                  """, unsafe_allow_html=True)
              with col_b:
                  is_error = "error" in crop_name.lower() or "unknown" in crop_name.lower()
+                 # Set selected_crop directly on button click and clear market prediction
                  if st.button(crop_name, key=f"crop_{i}", use_container_width=True, disabled=is_error):
                       st.session_state.selected_crop = crop_name
-             st.markdown(f"<small>{reason}</small>", unsafe_allow_html=True) # Text will be colored by CSS
-        
+                      st.session_state.market_prediction = None # Clear previous market prediction
+                      st.session_state.stress_test_result = None # Clear previous stress test
+                      st.experimental_rerun()
+
+             st.markdown(f"<small>{reason}</small>", unsafe_allow_html=True) 
+
+        # --- Selected Crop Action Panel ---
         if st.session_state.get("selected_crop"):
+            st.markdown("---")
+            st.markdown(f"## 🌾 {t('Action Hub for', lang)} **{st.session_state.selected_crop}**")
+            
             loc = st.session_state.user_data.get("location") 
             if loc and "state" in loc:
-                guide = get_crop_guide( st.session_state.selected_crop, loc["state"], loc["district"], loc["month"], lang )
-                st.markdown(f"### {t('Complete Guide for', lang)} **{st.session_state.selected_crop}**")
                 
-                # --- (THIS IS THE FIX) ---
-                # Use the new .info-box class instead of inline style
-                st.markdown(f"""<div class='info-box'>{guide.replace('•', '<br>•')}</div>""", unsafe_allow_html=True)
-                # --- (END OF FIX) ---
-                
-                if lang == "Kannada": 
-                    audio_bytes = get_kannada_audio_bytes(guide[:500])
-                    if audio_bytes: st.audio(audio_bytes, autoplay=True, format="audio/mp3")
-            else:
-                st.error(t("Please save your location first.", lang))
-
-with tab2:
-    st.markdown(f"<h3 style='text-align:center;'>{t('Famous Crops by State (India)', lang)}</h3>", unsafe_allow_html=True); st.markdown(f"<p style='text-align:center;'>{t('This is a static map showing major crops.', lang)}</p>", unsafe_allow_html=True)
-    m = folium.Map(location=[22.97, 78.65], zoom_start=5); marker_cluster = MarkerCluster().add_to(m)
-    for state, crop in FAMOUS_CROPS.items():
-        coords = STATE_COORDS.get(state)
-        if coords: popup = f"<b>{state}</b><br>{t('Famous Crop', lang)}: {t(crop, lang)}"; folium.Marker( location=coords, popup=popup, tooltip=f"{state}: {crop}", icon=folium.Icon(color='green', icon='leaf')).add_to(marker_cluster)
-    map_html = m._repr_html_()
-    components.html(map_html, height=600)
-
-render_project_bot()
+                # --- MARKET PREDICTION TAB ---
+                st.markdown(f"### 📈 {t('Live Market 
